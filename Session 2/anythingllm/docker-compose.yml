@@ -1,0 +1,255 @@
+# ==============================================================================
+# AnythingLLM - Full Production Docker Compose
+# GenAI Training Course - Session 2
+# ==============================================================================
+#
+# VECTOR DATABASE OPTIONS (set VECTOR_DB in .env):
+#   lancedb   → Built-in, zero config (DEFAULT - great for demos)
+#   chroma    → Uncomment the 'chroma' service block below
+#   qdrant    → Uncomment the 'qdrant' service block below
+#   weaviate  → Uncomment the 'weaviate' service block below
+#   pgvector  → Uncomment the 'postgres' service block below
+#   milvus    → Uncomment the milvus/etcd/minio service blocks below
+#
+# QUICK START:
+#   1. Copy .env.example to .env and fill in your values
+#   2. Run: docker compose up -d
+#   3. Open: http://localhost:3001
+# ==============================================================================
+
+name: anythingllm
+
+services:
+
+  # ============================================================================
+  # CORE: AnythingLLM Application
+  # ============================================================================
+  anythingllm:
+    image: mintplexlabs/anythingllm:latest
+    container_name: anythingllm
+    restart: unless-stopped
+    ports:
+      - "${SERVER_PORT:-3001}:3001"
+    cap_add:
+      - SYS_ADMIN   # Required for Puppeteer web scraping / Chromium sandbox
+    env_file:
+      - .env
+    volumes:
+      - anythingllm_storage:/app/server/storage
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # Allows connecting to Ollama/LM Studio on host
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - anythingllm_net
+    # Uncomment depends_on for your chosen vector database:
+    # depends_on:
+    #   chroma:
+    #     condition: service_healthy
+    # depends_on:
+    #   qdrant:
+    #     condition: service_healthy
+    # depends_on:
+    #   weaviate:
+    #     condition: service_started
+    # depends_on:
+    #   postgres:
+    #     condition: service_healthy
+
+  # ============================================================================
+  # VECTOR DATABASE OPTION 1: ChromaDB
+  # Enable: set VECTOR_DB=chroma and CHROMA_ENDPOINT=http://chroma:8000 in .env
+  #         then uncomment this service and the depends_on above
+  # ============================================================================
+  # chroma:
+  #   image: chromadb/chroma:latest
+  #   container_name: anythingllm_chroma
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8010:8000"         # Host port 8010 to avoid conflicts
+  #   environment:
+  #     - IS_PERSISTENT=TRUE
+  #     - CHROMA_SERVER_AUTH_PROVIDER=chromadb.auth.token_authn.TokenAuthenticationServerProvider
+  #     - CHROMA_SERVER_AUTH_CREDENTIALS=${CHROMA_API_KEY:-changeme}
+  #     - CHROMA_SERVER_AUTH_TOKEN_TRANSPORT_HEADER=X-Api-Key
+  #   volumes:
+  #     - chroma_data:/chroma/chroma
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+  #     interval: 20s
+  #     timeout: 5s
+  #     retries: 5
+  #   networks:
+  #     - anythingllm_net
+
+  # ============================================================================
+  # VECTOR DATABASE OPTION 2: Qdrant
+  # Enable: set VECTOR_DB=qdrant and QDRANT_ENDPOINT=http://qdrant:6333 in .env
+  #         then uncomment this service and the depends_on above
+  # ============================================================================
+  # qdrant:
+  #   image: qdrant/qdrant:latest
+  #   container_name: anythingllm_qdrant
+  #   restart: unless-stopped
+  #   ports:
+  #     - "6333:6333"   # REST API
+  #     - "6334:6334"   # gRPC
+  #   volumes:
+  #     - qdrant_storage:/qdrant/storage
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:6333/readyz"]
+  #     interval: 20s
+  #     timeout: 5s
+  #     retries: 5
+  #   networks:
+  #     - anythingllm_net
+
+  # ============================================================================
+  # VECTOR DATABASE OPTION 3: Weaviate
+  # Enable: set VECTOR_DB=weaviate and WEAVIATE_ENDPOINT=http://weaviate:8080 in .env
+  #         then uncomment this service and the depends_on above
+  # ============================================================================
+  # weaviate:
+  #   image: semitechnologies/weaviate:latest
+  #   container_name: anythingllm_weaviate
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8080:8080"   # REST API
+  #     - "50051:50051" # gRPC
+  #   environment:
+  #     QUERY_DEFAULTS_LIMIT: 25
+  #     AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+  #     PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
+  #     DEFAULT_VECTORIZER_MODULE: "none"
+  #     ENABLE_MODULES: ""
+  #     CLUSTER_HOSTNAME: "node1"
+  #   volumes:
+  #     - weaviate_data:/var/lib/weaviate
+  #   networks:
+  #     - anythingllm_net
+
+  # ============================================================================
+  # VECTOR DATABASE OPTION 4: PGVector (PostgreSQL + pgvector extension)
+  # Enable: set VECTOR_DB=pgvector in .env
+  #         then uncomment this service and the depends_on above
+  # ============================================================================
+  # postgres:
+  #   image: pgvector/pgvector:pg16
+  #   container_name: anythingllm_pgvector
+  #   restart: unless-stopped
+  #   ports:
+  #     - "5432:5432"
+  #   environment:
+  #     POSTGRES_USER: ${PGVECTOR_USER:-anythingllm}
+  #     POSTGRES_PASSWORD: ${PGVECTOR_PASSWORD:-anythingllm_pass}
+  #     POSTGRES_DB: ${PGVECTOR_DB:-anythingllm}
+  #   volumes:
+  #     - pgvector_data:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U ${PGVECTOR_USER:-anythingllm}"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+  #   networks:
+  #     - anythingllm_net
+
+  # ============================================================================
+  # VECTOR DATABASE OPTION 5: Milvus Standalone
+  # Enable: set VECTOR_DB=milvus and MILVUS_ADDRESS=http://milvus-standalone:19530 in .env
+  #         then uncomment milvus, etcd, and milvus-minio services below
+  # ============================================================================
+  # etcd:
+  #   image: quay.io/coreos/etcd:v3.5.14
+  #   container_name: anythingllm_milvus_etcd
+  #   restart: unless-stopped
+  #   environment:
+  #     - ETCD_AUTO_COMPACTION_MODE=revision
+  #     - ETCD_AUTO_COMPACTION_RETENTION=1000
+  #     - ETCD_QUOTA_BACKEND_BYTES=4294967296
+  #     - ETCD_SNAPSHOT_COUNT=50000
+  #   volumes:
+  #     - etcd_data:/etcd-data
+  #   command: >
+  #     etcd
+  #     --name=s1
+  #     --data-dir=/etcd-data
+  #     --listen-client-urls=http://0.0.0.0:2379
+  #     --advertise-client-urls=http://etcd:2379
+  #     --listen-peer-urls=http://0.0.0.0:2380
+  #     --initial-advertise-peer-urls=http://etcd:2380
+  #     --initial-cluster=s1=http://etcd:2380
+  #     --initial-cluster-token=milvus-etcd-token
+  #     --initial-cluster-state=new
+  #   networks:
+  #     - anythingllm_net
+
+  # milvus-minio:
+  #   image: minio/minio:RELEASE.2024-05-10T01-41-38Z
+  #   container_name: anythingllm_milvus_minio
+  #   restart: unless-stopped
+  #   environment:
+  #     MINIO_ACCESS_KEY: minioadmin
+  #     MINIO_SECRET_KEY: minioadmin
+  #   volumes:
+  #     - milvus_minio_data:/minio_data
+  #   command: minio server /minio_data --console-address ":9001"
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+  #     interval: 30s
+  #     timeout: 20s
+  #     retries: 3
+  #   networks:
+  #     - anythingllm_net
+
+  # milvus-standalone:
+  #   image: milvusdb/milvus:v2.4.9
+  #   container_name: anythingllm_milvus
+  #   restart: unless-stopped
+  #   command: ["milvus", "run", "standalone"]
+  #   environment:
+  #     ETCD_ENDPOINTS: etcd:2379
+  #     MINIO_ADDRESS: milvus-minio:9000
+  #   ports:
+  #     - "19530:19530"
+  #     - "9091:9091"
+  #   volumes:
+  #     - milvus_data:/var/lib/milvus
+  #   depends_on:
+  #     - etcd
+  #     - milvus-minio
+  #   networks:
+  #     - anythingllm_net
+
+# ==============================================================================
+# NETWORKS
+# ==============================================================================
+networks:
+  anythingllm_net:
+    driver: bridge
+    name: anythingllm_net
+
+# ==============================================================================
+# VOLUMES (persistent data - survives container restarts/upgrades)
+# ==============================================================================
+volumes:
+  anythingllm_storage:
+    name: anythingllm_storage
+  # Uncomment the volume for your chosen vector database:
+  # chroma_data:
+  #   name: anythingllm_chroma_data
+  # qdrant_storage:
+  #   name: anythingllm_qdrant_storage
+  # weaviate_data:
+  #   name: anythingllm_weaviate_data
+  # pgvector_data:
+  #   name: anythingllm_pgvector_data
+  # etcd_data:
+  #   name: anythingllm_etcd_data
+  # milvus_minio_data:
+  #   name: anythingllm_milvus_minio_data
+  # milvus_data:
+  #   name: anythingllm_milvus_data
